@@ -6,25 +6,9 @@
 
 Sub2API 是一个 AI API 网关和配额分发平台，核心用途是把多个上游 AI 账号或 API Key 统一接入，然后对外提供兼容接口、用户 API Key、用量统计和后台管理。
 
-## 功能状态
+## 待实现功能
 
-已实现：
-
-- [x] OpenAI、Claude、Gemini、Antigravity 等网关兼容接口。
-- [x] 用户、分组、账号、API Key 管理。
-- [x] 用量统计、余额/订阅、支付和兑换码。
-- [x] 管理后台、渠道监控、运维监控。
-- [x] PostgreSQL 数据库备份到 S3 兼容对象存储。
-- [x] 从已登记的备份记录恢复数据库。
-
-待实现：
-
-- [ ] 导入已有 S3 备份文件并登记为可恢复记录。
-- [ ] 从浏览器上传本地 `.sql.gz` 备份文件。
-- [ ] 恢复前自动创建当前数据库备份。
-- [ ] 恢复审计：记录操作人、开始时间、结束时间和失败原因。
-- [ ] Redis 和应用数据目录备份。
-- [ ] 一键迁移包：PostgreSQL、Redis、应用数据统一导出和导入。
+- [ ] 上传 `.sql.gz` 备份文件并导入为可恢复记录。
 
 ## 快速部署
 
@@ -93,7 +77,23 @@ docker compose -f docker-compose.dev.yml up --build -d
 
 GitHub 仓库右侧的 `Packages` 通常是仓库发布的包。对这个项目来说，最可能就是 Docker/OCI 镜像，例如发布到 GitHub Container Registry 后会显示为 Package。
 
-当前部署文件默认使用的是上游镜像：
+本仓库已经带有 release workflow。推送 `v*` tag 或手动运行 `Release` workflow 后，会构建并发布 fork 自己的镜像：
+
+```text
+ghcr.io/jiangdengke/sub2api:<version>
+ghcr.io/jiangdengke/sub2api:latest
+```
+
+发布示例：
+
+```bash
+git tag v0.1.133
+git push origin v0.1.133
+```
+
+镜像发布成功后，GitHub 仓库右侧会出现对应 Package。
+
+当前部署文件默认仍使用上游镜像：
 
 ```yaml
 image: weishaw/sub2api:latest
@@ -101,10 +101,9 @@ image: weishaw/sub2api:latest
 
 这意味着：
 
-- [x] 直接用 `docker-compose.local.yml` 部署时，会拉取上游发布的 Docker 镜像。
-- [x] 用 `docker-compose.dev.yml` 部署时，会从当前 fork 源码本地构建镜像。
-- [ ] 如果后续要使用自己 fork 的 Packages，需要添加 GitHub Actions 构建镜像并发布到 `ghcr.io/<你的账号>/sub2api`。
-- [ ] 发布自己的镜像后，需要把 Compose 里的 `image` 改成自己的镜像地址。
+- 直接用 `docker-compose.local.yml` 部署时，会拉取上游发布的 Docker 镜像。
+- 用 `docker-compose.dev.yml` 部署时，会从当前 fork 源码本地构建镜像。
+- 如果要部署 fork 发布的镜像，需要把 Compose 里的 `image` 改成 `ghcr.io/jiangdengke/sub2api:latest`。
 
 ## 数据和备份
 
@@ -122,38 +121,13 @@ docker compose -f deploy/docker-compose.local.yml down
 tar czf sub2api-deploy.tar.gz deploy/
 ```
 
-当前内置备份功能：
-
-- [x] 后台可配置 S3/R2/OSS 等 S3 兼容存储。
-- [x] 手动或定时执行 PostgreSQL 全量备份。
-- [x] 备份文件格式为 `.sql.gz`。
-- [x] 可从已登记的备份记录恢复数据库。
-
-当前限制：
-
-- [ ] 备份暂未覆盖 Redis 和完整 `deploy/data`。
-- [ ] 暂未支持导入已有备份文件。
-- [ ] 暂未支持从浏览器上传本地备份文件。
+当前备份功能以 PostgreSQL 为主，备份文件格式为 `.sql.gz`。后续重点补齐“上传 `.sql.gz` 备份文件并导入为可恢复记录”，用于迁移或恢复外部备份。
 
 ## 当前要实现的功能
 
-详见 [plan.md](./plan.md)。当前优先级：
+详见 [plan.md](./plan.md)。当前只聚焦一个功能：
 
-- [ ] 增加“导入已有 S3 备份”功能：填写已有 `s3_key`，校验对象存在后登记为可恢复备份。
-- [ ] 增加备份导入 UI：在数据库备份页面新增“导入备份”按钮和弹窗。
-- [x] 保持现有恢复安全校验：恢复仍需要管理员重新输入密码。
-- [ ] 补齐后端服务测试和前端交互测试。
-
-## 预计实现的功能
-
-后续计划按风险从低到高推进：
-
-- [ ] 本地 `.sql.gz` 文件上传并登记为备份。
-- [ ] 恢复前自动创建一次当前数据库备份。
-- [ ] 恢复审计：记录操作人、开始时间、结束时间和失败原因。
-- [ ] 备份上传改为真正流式或分片上传，避免大备份占用过多内存。
-- [ ] Redis 和应用数据目录备份。
-- [ ] 一键迁移包：PostgreSQL、Redis、应用数据统一导出和导入。
+- [ ] 在管理后台上传 `.sql.gz` 备份文件，上传后登记为可恢复记录，并复用现有恢复流程。
 
 ## 开发命令
 
