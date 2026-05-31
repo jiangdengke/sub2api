@@ -491,6 +491,7 @@ func registerBackupRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 
 		// 备份操作
 		backup.POST("", h.Admin.Backup.CreateBackup)
+		backup.POST("/upload", h.Admin.Backup.UploadBackup)
 		backup.GET("", h.Admin.Backup.ListBackups)
 		backup.GET("/:id", h.Admin.Backup.GetBackup)
 		backup.DELETE("/:id", h.Admin.Backup.DeleteBackup)

@@ -104,12 +104,22 @@
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
+            <input
+              ref="backupUploadInput"
+              type="file"
+              accept=".sql.gz,application/gzip"
+              class="hidden"
+              @change="uploadBackupFile"
+            />
             <div class="flex items-center gap-1">
               <label class="text-xs text-gray-600 dark:text-gray-400">{{ t('admin.backup.operations.expireDays') }}</label>
               <input v-model.number="manualExpireDays" type="number" min="0" class="input w-20 text-xs" />
             </div>
-            <button type="button" class="btn btn-primary btn-sm" :disabled="creatingBackup" @click="createBackup">
+            <button type="button" class="btn btn-primary btn-sm" :disabled="creatingBackup || uploadingBackup" @click="createBackup">
               {{ creatingBackup ? t('admin.backup.operations.backing') : t('admin.backup.operations.createBackup') }}
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="creatingBackup || uploadingBackup" @click="openBackupUpload">
+              {{ uploadingBackup ? t('admin.backup.operations.uploadingBackup') : t('admin.backup.operations.uploadBackup') }}
             </button>
             <button type="button" class="btn btn-secondary btn-sm" :disabled="loadingBackups" @click="loadBackups">
               {{ loadingBackups ? t('common.loading') : t('common.refresh') }}
@@ -150,7 +160,7 @@
                   {{ record.expires_at ? formatDate(record.expires_at) : t('admin.backup.neverExpire') }}
                 </td>
                 <td class="py-3 pr-4 text-xs">
-                  {{ record.triggered_by === 'scheduled' ? t('admin.backup.trigger.scheduled') : t('admin.backup.trigger.manual') }}
+                  {{ formatTriggeredBy(record.triggered_by) }}
                 </td>
                 <td class="py-3 pr-4 text-xs">{{ formatDate(record.started_at) }}</td>
                 <td class="py-3 text-xs">
@@ -315,8 +325,10 @@ const savingSchedule = ref(false)
 const backups = ref<BackupRecord[]>([])
 const loadingBackups = ref(false)
 const creatingBackup = ref(false)
+const uploadingBackup = ref(false)
 const restoringId = ref('')
 const manualExpireDays = ref(14)
+const backupUploadInput = ref<HTMLInputElement | null>(null)
 
 // Polling
 const pollingTimer = ref<ReturnType<typeof setInterval> | null>(null)
@@ -537,6 +549,41 @@ async function createBackup() {
   }
 }
 
+function openBackupUpload() {
+  if (creatingBackup.value || uploadingBackup.value) return
+  backupUploadInput.value?.click()
+}
+
+async function uploadBackupFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+
+  if (!file.name.toLowerCase().endsWith('.sql.gz')) {
+    appStore.showError(t('admin.backup.operations.uploadInvalidFile'))
+    return
+  }
+  if (!window.confirm(t('admin.backup.actions.uploadConfirm', { fileName: file.name }))) return
+
+  uploadingBackup.value = true
+  try {
+    const record = await adminAPI.backup.uploadBackup(file, manualExpireDays.value)
+    backups.value.unshift(record)
+    appStore.showSuccess(t('admin.backup.operations.uploadBackupCreated'))
+    await loadBackups()
+  } catch (error: any) {
+    const status = error?.status || error?.response?.status
+    if (status === 409) {
+      appStore.showWarning(t('admin.backup.operations.alreadyInProgress'))
+    } else {
+      appStore.showError(error?.message || t('errors.networkError'))
+    }
+  } finally {
+    uploadingBackup.value = false
+  }
+}
+
 async function downloadBackup(id: string) {
   try {
     const result = await adminAPI.backup.getDownloadURL(id)
@@ -587,6 +634,13 @@ function statusClass(status: string): string {
     default:
       return 'bg-gray-100 text-gray-700 dark:bg-dark-800 dark:text-gray-300'
   }
+}
+
+function formatTriggeredBy(triggeredBy: string): string {
+  if (triggeredBy === 'scheduled' || triggeredBy === 'imported') {
+    return t(`admin.backup.trigger.${triggeredBy}`)
+  }
+  return t('admin.backup.trigger.manual')
 }
 
 function formatSize(bytes: number): string {

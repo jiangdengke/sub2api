@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -36,6 +37,8 @@ var (
 	ErrRestoreInProgress     = infraerrors.Conflict("RESTORE_IN_PROGRESS", "a restore is already in progress")
 	ErrBackupRecordsCorrupt  = infraerrors.InternalServer("BACKUP_RECORDS_CORRUPT", "backup records data is corrupted")
 	ErrBackupS3ConfigCorrupt = infraerrors.InternalServer("BACKUP_S3_CONFIG_CORRUPT", "backup S3 config data is corrupted")
+	ErrBackupInvalidUpload   = infraerrors.BadRequest("BACKUP_INVALID_UPLOAD", "backup upload must be a .sql.gz file")
+	ErrBackupEmptyUpload     = infraerrors.BadRequest("BACKUP_EMPTY_UPLOAD", "backup upload file is empty")
 )
 
 // ─── 接口定义 ───
@@ -92,7 +95,7 @@ type BackupRecord struct {
 	FileName      string `json:"file_name"`
 	S3Key         string `json:"s3_key"`
 	SizeBytes     int64  `json:"size_bytes"`
-	TriggeredBy   string `json:"triggered_by"` // manual, scheduled
+	TriggeredBy   string `json:"triggered_by"` // manual, scheduled, imported
 	ErrorMsg      string `json:"error_message,omitempty"`
 	StartedAt     string `json:"started_at"`
 	FinishedAt    string `json:"finished_at,omitempty"`
@@ -707,6 +710,105 @@ func (s *BackupService) executeBackup(record *BackupRecord, objectStore BackupOb
 	}
 }
 
+// UploadBackup uploads an existing .sql.gz backup file to S3 and registers it as restorable.
+func (s *BackupService) UploadBackup(ctx context.Context, fileName string, body io.Reader, triggeredBy string, expireDays int) (*BackupRecord, error) {
+	if s.shuttingDown.Load() {
+		return nil, infraerrors.ServiceUnavailable("SERVER_SHUTTING_DOWN", "server is shutting down")
+	}
+	if body == nil {
+		return nil, ErrBackupInvalidUpload
+	}
+
+	safeFileName, err := sanitizeBackupUploadFileName(fileName)
+	if err != nil {
+		return nil, err
+	}
+	if triggeredBy == "" {
+		triggeredBy = "imported"
+	}
+
+	s.opMu.Lock()
+	if s.backingUp {
+		s.opMu.Unlock()
+		return nil, ErrBackupInProgress
+	}
+	s.backingUp = true
+	s.opMu.Unlock()
+	defer func() {
+		s.opMu.Lock()
+		s.backingUp = false
+		s.opMu.Unlock()
+	}()
+
+	s3Cfg, err := s.loadS3Config(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s3Cfg == nil || !s3Cfg.IsConfigured() {
+		return nil, ErrBackupS3NotConfigured
+	}
+
+	objectStore, err := s.getOrCreateStore(ctx, s3Cfg)
+	if err != nil {
+		return nil, fmt.Errorf("init object store: %w", err)
+	}
+
+	now := time.Now()
+	backupID := uuid.New().String()[:8]
+	s3ObjectName := fmt.Sprintf("%s_%s", backupID, safeFileName)
+	s3Key := s.buildS3Key(s3Cfg, s3ObjectName)
+
+	var expiresAt string
+	if expireDays > 0 {
+		expiresAt = now.AddDate(0, 0, expireDays).Format(time.RFC3339)
+	}
+
+	record := &BackupRecord{
+		ID:          backupID,
+		Status:      "running",
+		BackupType:  "postgres",
+		FileName:    safeFileName,
+		S3Key:       s3Key,
+		TriggeredBy: triggeredBy,
+		StartedAt:   now.Format(time.RFC3339),
+		ExpiresAt:   expiresAt,
+		Progress:    "uploading",
+	}
+
+	if err := s.saveRecord(ctx, record); err != nil {
+		return nil, fmt.Errorf("save initial record: %w", err)
+	}
+
+	sizeBytes, err := objectStore.Upload(ctx, s3Key, body, "application/gzip")
+	if err != nil {
+		record.Status = "failed"
+		record.ErrorMsg = fmt.Sprintf("S3 upload failed: %v", err)
+		record.Progress = ""
+		record.FinishedAt = time.Now().Format(time.RFC3339)
+		_ = s.saveRecord(context.Background(), record)
+		return record, fmt.Errorf("backup upload: %w", err)
+	}
+	if sizeBytes <= 0 {
+		_ = objectStore.Delete(ctx, s3Key)
+		record.Status = "failed"
+		record.ErrorMsg = "backup upload file is empty"
+		record.Progress = ""
+		record.FinishedAt = time.Now().Format(time.RFC3339)
+		_ = s.saveRecord(context.Background(), record)
+		return record, ErrBackupEmptyUpload
+	}
+
+	record.SizeBytes = sizeBytes
+	record.Status = "completed"
+	record.Progress = ""
+	record.FinishedAt = time.Now().Format(time.RFC3339)
+	if err := s.saveRecord(context.Background(), record); err != nil {
+		logger.LegacyPrintf("service.backup", "[Backup] 保存导入备份记录失败: %v", err)
+	}
+
+	return record, nil
+}
+
 // RestoreBackup 从 S3 下载备份并流式恢复到数据库
 func (s *BackupService) RestoreBackup(ctx context.Context, backupID string) error {
 	s.opMu.Lock()
@@ -1007,6 +1109,18 @@ func (s *BackupService) buildS3Key(cfg *BackupS3Config, fileName string) string 
 		prefix = "backups"
 	}
 	return fmt.Sprintf("%s/%s/%s", prefix, time.Now().Format("2006/01/02"), fileName)
+}
+
+func sanitizeBackupUploadFileName(fileName string) (string, error) {
+	normalized := strings.ReplaceAll(strings.TrimSpace(fileName), "\\", "/")
+	base := strings.TrimSpace(path.Base(normalized))
+	if base == "" || base == "." || base == ".." {
+		return "", ErrBackupInvalidUpload
+	}
+	if !strings.HasSuffix(strings.ToLower(base), ".sql.gz") {
+		return "", ErrBackupInvalidUpload
+	}
+	return base, nil
 }
 
 // loadRecords 加载备份记录，区分"无数据"和"数据损坏"

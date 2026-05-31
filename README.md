@@ -8,7 +8,7 @@ Sub2API 是一个 AI API 网关和配额分发平台，核心用途是把多个�
 
 ## 待实现功能
 
-- [ ] 上传 `.sql.gz` 备份文件并导入为可恢复记录。
+- 暂无。
 
 ## 快速部署
 
@@ -121,13 +121,11 @@ docker compose -f deploy/docker-compose.local.yml down
 tar czf sub2api-deploy.tar.gz deploy/
 ```
 
-当前备份功能以 PostgreSQL 为主，备份文件格式为 `.sql.gz`。后续重点补齐“上传 `.sql.gz` 备份文件并导入为可恢复记录”，用于迁移或恢复外部备份。
+当前备份功能以 PostgreSQL 为主，备份文件格式为 `.sql.gz`。管理后台支持创建数据库备份，也支持上传已有 `.sql.gz` 备份文件并登记为可恢复记录。
 
 ## 当前要实现的功能
 
-详见 [plan.md](./plan.md)。当前只聚焦一个功能：
-
-- [ ] 在管理后台上传 `.sql.gz` 备份文件，上传后登记为可恢复记录，并复用现有恢复流程。
+详见 [plan.md](./plan.md)。当前暂无新增待实现项。
 
 ## 开发命令
 

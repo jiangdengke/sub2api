@@ -77,6 +77,19 @@ export async function createBackup(req?: CreateBackupRequest): Promise<BackupRec
   return data
 }
 
+export async function uploadBackup(file: File, expireDays?: number): Promise<BackupRecord> {
+  const formData = new FormData()
+  formData.append('file', file)
+  if (expireDays !== undefined) {
+    formData.append('expire_days', String(expireDays))
+  }
+
+  const { data } = await apiClient.post<BackupRecord>('/admin/backups/upload', formData, {
+    timeout: 0,
+  })
+  return data
+}
+
 export async function listBackups(): Promise<{ items: BackupRecord[] }> {
   const { data } = await apiClient.get<{ items: BackupRecord[] }>('/admin/backups')
   return data
@@ -109,6 +122,7 @@ export const backupAPI = {
   getSchedule,
   updateSchedule,
   createBackup,
+  uploadBackup,
   listBackups,
   getBackup,
   deleteBackup,

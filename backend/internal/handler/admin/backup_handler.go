@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"strconv"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -104,6 +106,38 @@ func (h *BackupHandler) CreateBackup(c *gin.Context) {
 		return
 	}
 	response.Accepted(c, record)
+}
+
+func (h *BackupHandler) UploadBackup(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		response.BadRequest(c, "backup file is required")
+		return
+	}
+
+	expireDays := 14
+	if rawExpireDays := c.PostForm("expire_days"); rawExpireDays != "" {
+		parsedExpireDays, err := strconv.Atoi(rawExpireDays)
+		if err != nil || parsedExpireDays < 0 {
+			response.BadRequest(c, "expire_days must be a non-negative integer")
+			return
+		}
+		expireDays = parsedExpireDays
+	}
+
+	src, err := file.Open()
+	if err != nil {
+		response.BadRequest(c, "failed to open backup file")
+		return
+	}
+	defer func() { _ = src.Close() }()
+
+	record, err := h.backupService.UploadBackup(c.Request.Context(), file.Filename, src, "imported", expireDays)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, record)
 }
 
 func (h *BackupHandler) ListBackups(c *gin.Context) {

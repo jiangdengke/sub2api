@@ -4,6 +4,7 @@ package service
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -393,6 +394,70 @@ func TestBackupService_CreateBackup_ConcurrentBlocked(t *testing.T) {
 	require.ErrorIs(t, err, ErrBackupInProgress)
 }
 
+func TestBackupService_UploadBackup_CreatesRestorableRecord(t *testing.T) {
+	repo := newMockSettingRepo()
+	seedS3Config(t, repo)
+
+	dumpContent := "-- PostgreSQL dump\nCREATE TABLE imported (id int);\n"
+	dumper := &mockDumper{}
+	store := newMockObjectStore()
+	svc := newTestBackupService(repo, dumper, store)
+
+	record, err := svc.UploadBackup(context.Background(), "imported.sql.gz", bytes.NewReader(gzipTestData(t, dumpContent)), "imported", 14)
+	require.NoError(t, err)
+	require.Equal(t, "completed", record.Status)
+	require.Equal(t, "imported", record.TriggeredBy)
+	require.Equal(t, "imported.sql.gz", record.FileName)
+	require.Greater(t, record.SizeBytes, int64(0))
+	require.NotEmpty(t, record.S3Key)
+
+	final, err := svc.GetBackupRecord(context.Background(), record.ID)
+	require.NoError(t, err)
+	require.Equal(t, "completed", final.Status)
+
+	require.NoError(t, svc.RestoreBackup(context.Background(), record.ID))
+	require.Equal(t, dumpContent, string(dumper.restored))
+}
+
+func TestBackupService_UploadBackup_InvalidFileName(t *testing.T) {
+	repo := newMockSettingRepo()
+	seedS3Config(t, repo)
+
+	store := newMockObjectStore()
+	svc := newTestBackupService(repo, &mockDumper{}, store)
+
+	_, err := svc.UploadBackup(context.Background(), "backup.sql", bytes.NewReader([]byte("data")), "imported", 14)
+	require.ErrorIs(t, err, ErrBackupInvalidUpload)
+
+	store.mu.Lock()
+	require.Len(t, store.objects, 0)
+	store.mu.Unlock()
+}
+
+func TestBackupService_UploadBackup_NoS3Config(t *testing.T) {
+	repo := newMockSettingRepo()
+	svc := newTestBackupService(repo, &mockDumper{}, newMockObjectStore())
+
+	_, err := svc.UploadBackup(context.Background(), "backup.sql.gz", bytes.NewReader([]byte("data")), "imported", 14)
+	require.ErrorIs(t, err, ErrBackupS3NotConfigured)
+}
+
+func TestBackupService_UploadBackup_EmptyFile(t *testing.T) {
+	repo := newMockSettingRepo()
+	seedS3Config(t, repo)
+
+	store := newMockObjectStore()
+	svc := newTestBackupService(repo, &mockDumper{}, store)
+
+	record, err := svc.UploadBackup(context.Background(), "empty.sql.gz", bytes.NewReader(nil), "imported", 14)
+	require.ErrorIs(t, err, ErrBackupEmptyUpload)
+	require.Equal(t, "failed", record.Status)
+
+	store.mu.Lock()
+	require.Len(t, store.objects, 0)
+	store.mu.Unlock()
+}
+
 func TestBackupService_RestoreBackup_Streaming(t *testing.T) {
 	repo := newMockSettingRepo()
 	seedS3Config(t, repo)
@@ -412,6 +477,17 @@ func TestBackupService_RestoreBackup_Streaming(t *testing.T) {
 
 	// 验证 psql 收到的数据是否与原始 dump 内容一致
 	require.Equal(t, dumpContent, string(dumper.restored))
+}
+
+func gzipTestData(t *testing.T, data string) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	writer := gzip.NewWriter(&buf)
+	_, err := writer.Write([]byte(data))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	return buf.Bytes()
 }
 
 func TestBackupService_RestoreBackup_NotCompleted(t *testing.T) {

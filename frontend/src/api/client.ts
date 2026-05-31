@@ -66,6 +66,11 @@ apiClient.interceptors.request.use(
       config.headers['Accept-Language'] = getLocale()
     }
 
+    if (typeof FormData !== 'undefined' && config.data instanceof FormData && config.headers) {
+      delete config.headers['Content-Type']
+      delete config.headers['content-type']
+    }
+
     // Attach timezone for all GET requests (backend may use it for default date ranges)
     if (config.method === 'get') {
       if (!config.params) {

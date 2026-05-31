@@ -1462,7 +1462,11 @@ export default {
         description: 'Create manual backups and manage existing backup records',
         createBackup: 'Create Backup',
         backing: 'Backing up...',
+        uploadBackup: 'Import Backup',
+        uploadingBackup: 'Importing...',
         backupCreated: 'Backup created successfully',
+        uploadBackupCreated: 'Backup imported successfully',
+        uploadInvalidFile: 'Please select a .sql.gz backup file',
         expireDays: 'Expire Days',
         alreadyInProgress: 'A backup is already in progress',
         backupRunning: 'Backup in progress...',
@@ -1492,7 +1496,8 @@ export default {
       },
       trigger: {
         manual: 'Manual',
-        scheduled: 'Scheduled'
+        scheduled: 'Scheduled',
+        imported: 'Imported'
       },
       neverExpire: 'Never',
       empty: 'No backup records',
@@ -1502,6 +1507,7 @@ export default {
         restoreConfirm: 'Are you sure you want to restore from this backup? This will overwrite the current database!',
         restorePasswordPrompt: 'Please enter your admin password to confirm the restore operation',
         restoreSuccess: 'Database restored successfully',
+        uploadConfirm: 'Import backup file {fileName}?',
         deleteConfirm: 'Are you sure you want to delete this backup?',
         deleted: 'Backup deleted'
       },

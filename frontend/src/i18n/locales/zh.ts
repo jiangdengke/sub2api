@@ -1483,7 +1483,11 @@ export default {
         description: '创建手动备份和管理已有备份记录',
         createBackup: '创建备份',
         backing: '备份中...',
+        uploadBackup: '导入备份',
+        uploadingBackup: '导入中...',
         backupCreated: '备份创建成功',
+        uploadBackupCreated: '备份导入成功',
+        uploadInvalidFile: '请选择 .sql.gz 备份文件',
         expireDays: '过期天数',
         alreadyInProgress: '已有备份正在进行中',
         backupRunning: '备份进行中...',
@@ -1513,7 +1517,8 @@ export default {
       },
       trigger: {
         manual: '手动',
-        scheduled: '定时'
+        scheduled: '定时',
+        imported: '导入'
       },
       neverExpire: '永不过期',
       empty: '暂无备份记录',
@@ -1523,6 +1528,7 @@ export default {
         restoreConfirm: '确定要从此备份恢复吗？这将覆盖当前数据库！',
         restorePasswordPrompt: '请输入管理员密码以确认恢复操作',
         restoreSuccess: '数据库恢复成功',
+        uploadConfirm: '确定要导入备份文件 {fileName} 吗？',
         deleteConfirm: '确定要删除此备份吗？',
         deleted: '备份已删除'
       },
